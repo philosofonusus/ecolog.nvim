@@ -23,7 +23,7 @@ describe("types", function()
 
     it("should detect URLs", function()
       assert.equals("url", types.detect_type("https://example.com"))
-      assert.equals("url", types.detect_type("http://localhost:3000"))
+      assert.equals("localhost", types.detect_type("http://localhost:3000"))
     end)
 
     it("should detect database URLs", function()

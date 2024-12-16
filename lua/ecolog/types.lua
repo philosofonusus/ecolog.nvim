@@ -45,10 +45,21 @@ local TYPE_DEFINITIONS = {
     pattern = "^https?://[%w%-%.]+%.[%w%-%.]+[%w%-%./:?=&]*$",
   },
   localhost = {
-    pattern = "^https?://(localhost|127%.0%.0%.1)(:%d+)?[%w%-%./:]*$",
+    pattern = "^https?://(localhost|127%.0%.0%.1)(:[0-9]+)?/?.*$",
+    validate = function(url)
+      -- Extract port if present
+      local port = url:match("^https?://.+:(%d+)")
+      if port then
+        local port_num = tonumber(port)
+        if not port_num or port_num < 1 or port_num > 65535 then
+          return false
+        end
+      end
+      return true
+    end
   },
   database_url = {
-    pattern = "^([%w+]+)://([^:/@]+:[^@]*@)?([^/:]+)(:%d+)?(/[^?]*)?(%?.*)?$",
+    pattern = "^[%w+]+://[^:/@]+:[^@]*@[^/:]+:[0-9]+/[^?]*$",
     validate = function(url)
       local protocol = url:match("^([%w+]+)://")
       if not protocol then return false end
@@ -66,7 +77,24 @@ local TYPE_DEFINITIONS = {
         ["cockroachdb"] = true,
       }
       
-      return valid_protocols[protocol:lower()] or false
+      -- Check if protocol is valid
+      if not valid_protocols[protocol:lower()] then
+        return false
+      end
+
+      -- Parse URL components
+      local user, pass, host, port, db = url:match("^[%w+]+://([^:]+):([^@]+)@([^:]+):(%d+)/(.+)$")
+      if not (user and pass and host and port and db) then
+        return false
+      end
+
+      -- Validate port number
+      local port_num = tonumber(port)
+      if not port_num or port_num < 1 or port_num > 65535 then
+        return false
+      end
+
+      return true
     end
   },
   ipv4 = {
