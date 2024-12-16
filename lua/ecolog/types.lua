@@ -13,7 +13,7 @@ local M = {}
 local TYPE_DEFINITIONS = {
   -- Data types
   boolean = {
-    pattern = "(true|false|yes|no|1|0)",
+    pattern = "^[a-zA-Z0-9]+$",
     validate = function(value)
       local lower = value:lower()
       return lower == "true" or lower == "false" or 
@@ -32,7 +32,7 @@ local TYPE_DEFINITIONS = {
     pattern = "^-?%d+%.?%d*$",
   },
   json = {
-    pattern = "^[%s]*[{%[].-[}%]][%s]*$",
+    pattern = "^%s*[{%[].*[%]}]%s*$",
     validate = function(str)
       local status = pcall(function()
         vim.json.decode(str)
@@ -42,24 +42,23 @@ local TYPE_DEFINITIONS = {
   },
   -- Network types
   url = {
-    pattern = "^https?://[%w%-%.]+%.[%w%-%.]+[%w%-%./:?=&]*$",
+    pattern = "^https?://[%w%-%.]+%.[%w%-%.]+[%w%-%./:?=&#]*$",
   },
   localhost = {
-    pattern = "^https?://(localhost|127%.0%.0%.1)(:[0-9]+)?/?.*$",
+    pattern = "^(https?://(localhost|127%.0%.0%.1)(:[0-9]+)?(/.*)?$)",
     validate = function(url)
-      -- Extract port if present
-      local port = url:match("^https?://.+:(%d+)")
+      local port = url:match(":[0-9]+")
       if port then
-        local port_num = tonumber(port)
-        if not port_num or port_num < 1 or port_num > 65535 then
+        port = tonumber(port:sub(2))
+        if not port or port < 1 or port > 65535 then
           return false
         end
       end
       return true
-    end
+    end,
   },
   database_url = {
-    pattern = "^[%w+]+://[^:/@]+:[^@]*@[^/:]+:[0-9]+/[^?]*$",
+    pattern = "[%w+]+://[^:/@]+:[^@]+@[^/:]+:[0-9]+/[^?]+",
     validate = function(url)
       local protocol = url:match("^([%w+]+)://")
       if not protocol then return false end
@@ -77,20 +76,17 @@ local TYPE_DEFINITIONS = {
         ["cockroachdb"] = true,
       }
       
-      -- Check if protocol is valid
       if not valid_protocols[protocol:lower()] then
         return false
       end
 
-      -- Parse URL components
-      local user, pass, host, port, db = url:match("^[%w+]+://([^:]+):([^@]+)@([^:]+):(%d+)/(.+)$")
-      if not (user and pass and host and port and db) then
+      local user, pass, host, port = url:match("^[%w+]+://([^:]+):([^@]+)@([^:]+):(%d+)")
+      if not (user and pass and host and port) then
         return false
       end
 
-      -- Validate port number
-      local port_num = tonumber(port)
-      if not port_num or port_num < 1 or port_num > 65535 then
+      port = tonumber(port)
+      if not port or port < 1 or port > 65535 then
         return false
       end
 
@@ -98,9 +94,9 @@ local TYPE_DEFINITIONS = {
     end
   },
   ipv4 = {
-    pattern = "^(%d%d?%d?)%.(%d%d?%d?)%.(%d%d?%d?)%.(%d%d?%d?)$",
+    pattern = "(%d%d?%d?)%.(%d%d?%d?)%.(%d%d?%d?)%.(%d%d?%d?)",
     validate = function(value)
-      local parts = { value:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$") }
+      local parts = {value:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")}
       if #parts ~= 4 then return false end
       for _, part in ipairs(parts) do
         local num = tonumber(part)
@@ -111,7 +107,7 @@ local TYPE_DEFINITIONS = {
   },
   -- Date and time
   iso_date = {
-    pattern = "^(%d%d%d%d)-(%d%d)-(%d%d)$",
+    pattern = "^%d%d%d%d%-%d%d%-%d%d$",
     validate = function(value)
       local year, month, day = value:match("^(%d%d%d%d)-(%d%d)-(%d%d)$")
       year, month, day = tonumber(year), tonumber(month), tonumber(day)
@@ -137,7 +133,7 @@ local TYPE_DEFINITIONS = {
     end,
   },
   iso_time = {
-    pattern = "^(%d%d):(%d%d):(%d%d)$",
+    pattern = "(%d%d):(%d%d):(%d%d)",
     validate = function(value)
       local hour, minute, second = value:match("^(%d%d):(%d%d):(%d%d)$")
       hour, minute, second = tonumber(hour), tonumber(minute), tonumber(second)
@@ -149,7 +145,7 @@ local TYPE_DEFINITIONS = {
   },
   -- Visual
   hex_color = {
-    pattern = "^#([%x][%x][%x]|[%x][%x][%x][%x][%x][%x])$",
+    pattern = "#([%x][%x][%x]|[%x][%x][%x][%x][%x][%x])",
     validate = function(value)
       local hex = value:sub(2)
       if #hex == 3 then
@@ -207,6 +203,7 @@ function M.setup(opts)
 
   -- Handle custom types
   if opts.custom_types then
+    -- Enable custom types regardless of types setting
     for name, def in pairs(opts.custom_types) do
       if type(def) == "table" and def.pattern then
         config.custom_types[name] = {
@@ -214,6 +211,8 @@ function M.setup(opts)
           validate = def.validate,
           transform = def.transform,
         }
+        -- Ensure custom types are always enabled
+        config.enabled_types[name] = true
       end
     end
   end
@@ -246,56 +245,46 @@ function M.detect_type(value)
     return key_value_type
   end
 
-  -- Trim whitespace from value
-  value = value:match("^%s*(.-)%s*$") or value
+  -- Special case for boolean - check validation first
+  if config.enabled_types.boolean then
+    local type_def = TYPE_DEFINITIONS.boolean
+    if type_def.validate(value) then
+      return "boolean", type_def.transform(value)
+    end
+  end
 
   -- Check built-in types in specific order
   local type_check_order = {
-    "boolean",
+    "localhost",   -- Check localhost before general URL
     "database_url",
-    "localhost",
     "url",
-    "number",
-    "json",
-    "ipv4",
-    "iso_date",
+    "iso_date",   -- Check specific formats before numbers
     "iso_time",
     "hex_color",
+    "ipv4",
+    "number",     -- Check number last as it's more general
+    "json",
   }
 
   for _, type_name in ipairs(type_check_order) do
     local type_def = TYPE_DEFINITIONS[type_name]
     if type_def and config.enabled_types[type_name] then
-      -- For boolean type, do a direct match
-      if type_name == "boolean" then
-        local lower = value:lower()
-        if lower == "true" or lower == "false" or 
-           lower == "yes" or lower == "no" or 
-           lower == "1" or lower == "0" then
-          if type_def.transform then
-            value = type_def.transform(value)
+      -- For all types, use pattern matching
+      if value:match(type_def.pattern) then
+        -- Check validation if exists
+        if type_def.validate then
+          local is_valid = type_def.validate(value)
+          if not is_valid then
+            goto continue
           end
-          return type_name, value
         end
-      else
-        -- For other types, use pattern matching
-        local matched = value:match(type_def.pattern)
-        if matched then
-          -- Check validation if exists
-          if type_def.validate then
-            local is_valid = type_def.validate(value)
-            if not is_valid then
-              goto continue
-            end
-          end
-          
-          -- Transform if needed
-          if type_def.transform then
-            value = type_def.transform(value)
-          end
-          
-          return type_name, value
+        
+        -- Transform if needed
+        if type_def.transform then
+          value = type_def.transform(value)
         end
+        
+        return type_name, value
       end
       
       ::continue::
