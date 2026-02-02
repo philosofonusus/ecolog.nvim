@@ -9,7 +9,7 @@ Ecolog (эколог) - your environment guardian in Neovim. Named after the Rus
 
 A Neovim plugin for seamless environment variable integration and management. Provides intelligent autocompletion, type checking, and value peeking for environment variables in your projects. All in one place.
 
-> 💡 **LATEST INFO**: Please set branch to **v1** or consider **beta** if possible, **beta** is a complete rewrite of ecolog.nvim from the ground up.
+> 💡 **LATEST INFO**: Please set branch to **v1** or consider **ecolog2.nvim** if possible, **ecolog2.nvim** is a complete rewrite of ecolog.nvim from the ground up.
 
 ![CleanShot 2025-01-03 at 21 20 37](https://github.com/user-attachments/assets/f19c9979-7334-44ac-8845-77db2e93d187)
 
